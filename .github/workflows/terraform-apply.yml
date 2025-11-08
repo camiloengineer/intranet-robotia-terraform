@@ -1,0 +1,87 @@
+name: Terraform Apply
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '**.tf'
+      - 'install-wordpress.sh'
+      - '.github/workflows/terraform-*.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  terraform-apply:
+    name: Terraform Apply
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ~1.0
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Setup gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan -input=false -out=tfplan
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve -input=false tfplan
+
+      - name: Get Instance IP
+        id: get-ip
+        run: |
+          INSTANCE_IP=$(terraform output -raw instance_public_ip)
+          echo "instance_ip=$INSTANCE_IP" >> $GITHUB_OUTPUT
+          echo "INSTANCE_IP=$INSTANCE_IP" >> $GITHUB_ENV
+
+      - name: Verify Infrastructure
+        run: |
+          echo "✅ Terraform apply completed successfully"
+          echo ""
+          echo "📊 Infrastructure Summary:"
+          terraform output
+          echo ""
+          echo "🌐 WordPress Site: http://${{ steps.get-ip.outputs.instance_ip }}"
+          echo ""
+          echo "🔧 SSH Access:"
+          echo "gcloud compute ssh intranet-robotia --zone=us-central1-a --project=intranet-robotia"
+
+      - name: Health Check (wait for WordPress)
+        run: |
+          echo "⏳ Waiting 60 seconds for WordPress to be ready..."
+          sleep 60
+
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://${{ steps.get-ip.outputs.instance_ip }} || echo "000")
+
+          if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "301" ] || [ "$HTTP_STATUS" = "302" ]; then
+            echo "✅ WordPress is responding (HTTP $HTTP_STATUS)"
+          else
+            echo "⚠️  WordPress returned HTTP $HTTP_STATUS (may still be initializing)"
+            echo "ℹ️  Check startup script logs with:"
+            echo "gcloud compute ssh intranet-robotia --zone=us-central1-a --command='sudo journalctl -u google-startup-scripts.service'"
+          fi

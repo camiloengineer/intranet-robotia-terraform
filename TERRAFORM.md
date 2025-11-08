@@ -232,7 +232,48 @@ output "db_password" {
 
 ## 🚀 Deployment Strategy
 
-### Plan → Apply Workflow
+### Opción 1: CI/CD con GitHub Actions (Recomendado)
+
+**Flujo automatizado:**
+
+1. **Pull Requests** → `terraform plan`
+   - Workflow: `.github/workflows/terraform-plan.yml`
+   - Ejecuta: `fmt`, `validate`, `plan`
+   - Comenta el plan en el PR automáticamente
+
+2. **Push a `main`** → `terraform apply`
+   - Workflow: `.github/workflows/terraform-apply.yml`
+   - Ejecuta: `fmt`, `validate`, `plan`, `apply`
+   - Health check automático
+   - Outputs visibles en logs
+
+**Triggers:**
+```yaml
+on:
+  pull_request:
+    paths:
+      - '**.tf'
+      - 'install-wordpress.sh'
+  push:
+    branches: [main]
+    paths:
+      - '**.tf'
+```
+
+**Secretos necesarios:**
+- `GCP_PROJECT_ID`: intranet-robotia
+- `GCP_SA_KEY`: JSON key de Service Account con permisos:
+  - `roles/compute.admin`
+  - `roles/storage.admin`
+  - `roles/compute.networkAdmin`
+
+**Ventajas:**
+- ✅ No requiere Terraform local
+- ✅ Plan automático en cada PR
+- ✅ Historial de cambios en Actions
+- ✅ Rollback con `git revert`
+
+### Opción 2: Plan → Apply Manual (Local)
 
 ```bash
 # 1. Hacer cambios en .tf
@@ -366,7 +407,8 @@ inputs = {
 ## 🔮 Roadmap
 
 ### Corto plazo
-- [ ] GitHub Actions para `terraform plan` en PRs
+- [x] GitHub Actions para `terraform plan` en PRs
+- [x] GitHub Actions para `terraform apply` en push a main
 - [ ] Pre-commit hooks (terraform fmt, validate)
 - [ ] Checkov en CI/CD
 

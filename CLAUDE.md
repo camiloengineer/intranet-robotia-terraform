@@ -35,22 +35,93 @@
 
 ```
 intranet-robotia-terraform/
-├── backend.tf                  # Config backend GCS
-├── main.tf                     # Recursos principales
-├── variables.tf                # Variables configurables
-├── outputs.tf                  # Outputs útiles
-├── install-wordpress.sh        # Startup script (metadata)
-├── .gitignore                  # Exclusiones (state, tfvars)
-├── README.md                   # Quick start + usage
-├── TERRAFORM.md                # Arquitectura detallada
-└── CLAUDE.md                   # Este archivo
+├── .github/
+│   └── workflows/
+│       ├── terraform-plan.yml   # CI: terraform plan en PRs
+│       └── terraform-apply.yml  # CD: terraform apply en push a main
+├── backend.tf                   # Config backend GCS
+├── main.tf                      # Recursos principales
+├── variables.tf                 # Variables configurables
+├── outputs.tf                   # Outputs útiles
+├── install-wordpress.sh         # Startup script (metadata)
+├── .gitignore                   # Exclusiones (state, tfvars)
+├── README.md                    # Quick start + usage
+├── TERRAFORM.md                 # Arquitectura detallada
+└── CLAUDE.md                    # Este archivo
 ```
 
 ---
 
 ## 🚀 Workflow de Desarrollo
 
-### Inicialización (Una sola vez)
+### CI/CD con GitHub Actions (Modo Recomendado)
+
+**Setup inicial (una sola vez):**
+
+```bash
+# 1. Crear Service Account para GitHub Actions
+gcloud iam service-accounts create terraform-github-actions \
+  --display-name="Terraform GitHub Actions" \
+  --project=intranet-robotia
+
+# 2. Asignar permisos necesarios
+for role in roles/compute.admin roles/storage.admin roles/compute.networkAdmin; do
+  gcloud projects add-iam-policy-binding intranet-robotia \
+    --member="serviceAccount:terraform-github-actions@intranet-robotia.iam.gserviceaccount.com" \
+    --role="$role"
+done
+
+# 3. Crear key JSON
+gcloud iam service-accounts keys create ~/terraform-sa-key.json \
+  --iam-account=terraform-github-actions@intranet-robotia.iam.gserviceaccount.com
+
+# 4. Configurar GitHub Secrets (Settings → Secrets and variables → Actions)
+#    - GCP_PROJECT_ID: intranet-robotia
+#    - GCP_SA_KEY: <contenido de terraform-sa-key.json>
+
+# 5. Limpiar archivo local
+rm ~/terraform-sa-key.json
+```
+
+**Flujo de cambios diario:**
+
+```bash
+# 1. Clonar repositorio
+git clone git@github.com:camiloengineer/intranet-robotia-terraform.git
+cd intranet-robotia-terraform
+
+# 2. Crear feature branch
+git checkout -b feature/mi-cambio
+
+# 3. Editar archivos .tf
+vim main.tf
+
+# 4. Commit y push
+git add .
+git commit -m "feat: descripción del cambio"
+git push origin feature/mi-cambio
+
+# 5. Crear Pull Request en GitHub
+#    → GitHub Actions ejecuta 'terraform plan' automáticamente
+#    → El plan se comenta en el PR para revisión
+
+# 6. Merge del PR a main
+#    → GitHub Actions ejecuta 'terraform apply' automáticamente
+#    → Infraestructura se actualiza sin intervención manual
+
+# 7. Verificar deployment en GitHub Actions tab
+```
+
+**Workflows automatizados:**
+
+| Workflow | Trigger | Acciones | Archivo |
+|----------|---------|----------|---------|
+| Terraform Plan | Pull Request a `main` | fmt, validate, plan, comentar PR | `.github/workflows/terraform-plan.yml` |
+| Terraform Apply | Push a `main` | fmt, validate, plan, apply, health check | `.github/workflows/terraform-apply.yml` |
+
+### Modo Local (Manual)
+
+**Inicialización (una sola vez):**
 
 ```bash
 # 1. Clonar repositorio
@@ -68,7 +139,7 @@ terraform init
 terraform show
 ```
 
-### Flujo de Cambios
+**Flujo de cambios:**
 
 ```bash
 # 1. Editar archivos .tf
@@ -88,6 +159,11 @@ terraform apply
 
 # 6. Ver outputs
 terraform output
+
+# 7. Commit y push
+git add .
+git commit -m "feat: descripción del cambio"
+git push origin main
 ```
 
 ### Comandos Útiles
@@ -319,6 +395,20 @@ sudo journalctl -u google-startup-scripts.service
 sudo cat /var/log/syslog | grep startup-script
 ```
 
+### GitHub Actions workflow falló
+
+```bash
+# Ver workflows recientes
+# Ir a: https://github.com/camiloengineer/intranet-robotia-terraform/actions
+
+# Verificar secretos configurados
+# Settings → Secrets and variables → Actions
+# Debe tener: GCP_PROJECT_ID, GCP_SA_KEY
+
+# Re-crear Service Account si hay problemas de permisos
+gcloud iam service-accounts describe terraform-github-actions@intranet-robotia.iam.gserviceaccount.com
+```
+
 ---
 
 ## 🎯 INSTRUCCIONES PARA CLAUDE CODE
@@ -342,6 +432,7 @@ sudo cat /var/log/syslog | grep startup-script
 - ✅ **SIEMPRE** haz `terraform plan` antes de commit
 - ✅ **NUNCA** commitees `*.tfstate*` o `*.tfvars`
 - ✅ **NUNCA** commitees directorio `.terraform/`
+- ✅ **NUNCA** agregues "Co-Authored-By: Claude" en commits
 - ✅ **SIEMPRE** usa mensajes descriptivos
 
 ```bash
@@ -351,6 +442,31 @@ git commit -m "changes"
 # ✅ BIEN
 git commit -m "feat(compute): aumenta disk size a 30GB"
 ```
+
+### CI/CD con GitHub Actions
+
+**Workflows implementados:**
+
+1. **`.github/workflows/terraform-plan.yml`**
+   - Trigger: Pull Requests a `main`
+   - Ejecuta: terraform fmt (check), validate, plan
+   - Comenta el plan automáticamente en el PR
+   - Requiere: secrets `GCP_PROJECT_ID` y `GCP_SA_KEY`
+
+2. **`.github/workflows/terraform-apply.yml`**
+   - Trigger: Push a `main` (incluyendo merges)
+   - Ejecuta: terraform fmt (check), validate, plan, apply
+   - Health check de WordPress después del apply
+   - Muestra outputs en los logs
+
+**Secretos necesarios en GitHub:**
+- `GCP_PROJECT_ID`: intranet-robotia
+- `GCP_SA_KEY`: JSON key del Service Account `terraform-github-actions`
+
+**Service Account debe tener roles:**
+- roles/compute.admin
+- roles/storage.admin
+- roles/compute.networkAdmin
 
 ### Tareas Comunes
 
@@ -403,9 +519,10 @@ gsutil ls gs://robotia-terraform-state/terraform/state/
 ## 🔮 Roadmap
 
 ### Corto plazo
-- [ ] GitHub Actions para `terraform plan` en PRs
+- [x] GitHub Actions para `terraform plan` en PRs (2025-11-08)
+- [x] GitHub Actions para `terraform apply` en push a main (2025-11-08)
 - [ ] Pre-commit hooks (fmt, validate)
-- [ ] Checkov security scanning
+- [ ] Checkov security scanning en workflows
 
 ### Mediano plazo
 - [ ] Migrar secretos a Secret Manager
@@ -456,13 +573,32 @@ gsutil ls gs://robotia-terraform-state/terraform/state/
 - **Variables:** 10
 - **Outputs:** 10
 - **Archivos .tf:** 4
+- **Workflows CI/CD:** 2
 - **Backend:** GCS (remoto)
 - **Free tier:** 100% compliant
 - **Versión Terraform:** >= 1.0
 
 ---
 
-**Versión:** 1.0
+## 📝 Changelog
+
+### 2025-11-08 - v1.1 - CI/CD Implementation
+- Agregado workflow `terraform-plan.yml` para Pull Requests
+- Agregado workflow `terraform-apply.yml` para push a main
+- Documentado setup de Service Account en README.md
+- Actualizado TERRAFORM.md con estrategia de CI/CD
+- Actualizado CLAUDE.md con instrucciones de workflows
+
+### 2025-11-08 - v1.0 - Initial Release
+- Infraestructura inicial con Terraform
+- Compute Instance con WordPress
+- Firewall rules HTTP/HTTPS
+- Storage buckets para backups y state
+- Backend remoto en GCS
+
+---
+
+**Versión:** 1.1
 **Última actualización:** 2025-11-08
 **Creado para:** Claude Code + Futuras instancias de IA
 **Mantenedor:** Camilo González (@camiloengineer.com)
